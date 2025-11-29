@@ -31,6 +31,8 @@ const (
 	BackendTypeEtcd BackendType = "etcd"
 	// BackendTypeSQLite uses SQLite as the storage backend
 	BackendTypeSQLite BackendType = "sqlite"
+	// BackendTypeMemory uses in-memory storage (non-persistent)
+	BackendTypeMemory BackendType = "memory"
 )
 
 var (
@@ -78,6 +80,8 @@ func GetBackendType() BackendType {
 	switch backendStr {
 	case "sqlite", "sqlite3":
 		return BackendTypeSQLite
+	case "memory", "mem", "inmemory", "in-memory":
+		return BackendTypeMemory
 	case "etcd", "":
 		return BackendTypeEtcd
 	default:
@@ -110,6 +114,8 @@ func NewBackend(cfg *BackendConfig) (Backend, error) {
 			path = "/var/lib/external-dns/coredns.db"
 		}
 		return NewSQLiteBackend(path)
+	case BackendTypeMemory:
+		return NewMemoryBackend(), nil
 	default:
 		return nil, ErrUnknownBackend
 	}
