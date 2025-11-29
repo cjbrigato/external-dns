@@ -65,6 +65,10 @@ func (c fakeETCDClient) DeleteService(_ context.Context, key string) error {
 	return nil
 }
 
+func (c fakeETCDClient) Close() error {
+	return nil
+}
+
 type MockEtcdKV struct {
 	etcdcv3.KV
 	mock.Mock

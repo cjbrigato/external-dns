@@ -45,7 +45,8 @@ const (
 	providerSpecificGroup = "coredns/group"
 )
 
-// coreDNSClient is an interface to work with CoreDNS service records in etcd
+// coreDNSClient is an interface to work with CoreDNS service records in storage.
+// Deprecated: Use Backend interface instead. This is kept for backward compatibility.
 type coreDNSClient interface {
 	GetServices(ctx context.Context, prefix string) ([]*Service, error)
 	SaveService(ctx context.Context, value *Service) error
@@ -57,7 +58,7 @@ type coreDNSProvider struct {
 	dryRun        bool
 	coreDNSPrefix string
 	domainFilter  *endpoint.DomainFilter
-	client        coreDNSClient
+	client        Backend
 }
 
 // Service represents CoreDNS etcd record
@@ -91,6 +92,7 @@ type etcdClient struct {
 }
 
 var _ coreDNSClient = etcdClient{}
+var _ Backend = (*etcdClient)(nil)
 
 // GetServices GetService return all Service records stored in etcd stored anywhere under the given key (recursively)
 func (c etcdClient) GetServices(ctx context.Context, prefix string) ([]*Service, error) {
@@ -152,6 +154,14 @@ func (c etcdClient) DeleteService(ctx context.Context, key string) error {
 	return err
 }
 
+// Close closes the etcd client connection
+func (c *etcdClient) Close() error {
+	if c.client != nil {
+		return c.client.Close()
+	}
+	return nil
+}
+
 // builds etcd client config depending on connection scheme and TLS parameters
 func getETCDConfig() (*etcdcv3.Config, error) {
 	etcdURLsStr := os.Getenv("ETCD_URLS")
@@ -182,8 +192,8 @@ func getETCDConfig() (*etcdcv3.Config, error) {
 	}
 }
 
-// the newETCDClient is an etcd client constructor
-func newETCDClient() (coreDNSClient, error) {
+// newETCDClient is an etcd client constructor
+func newETCDClient() (Backend, error) {
 	cfg, err := getETCDConfig()
 	if err != nil {
 		return nil, err
@@ -192,12 +202,15 @@ func newETCDClient() (coreDNSClient, error) {
 	if err != nil {
 		return nil, err
 	}
-	return etcdClient{c}, nil
+	return &etcdClient{c}, nil
 }
 
-// NewCoreDNSProvider is a CoreDNS provider constructor
+// NewCoreDNSProvider is a CoreDNS provider constructor.
+// The backend is selected via the COREDNS_BACKEND environment variable:
+//   - "etcd" (default): Uses etcd as the storage backend
+//   - "sqlite": Uses SQLite as the storage backend (simpler, single-node)
 func NewCoreDNSProvider(domainFilter *endpoint.DomainFilter, prefix string, dryRun bool) (provider.Provider, error) {
-	client, err := newETCDClient()
+	client, err := NewBackend(nil)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +221,17 @@ func NewCoreDNSProvider(domainFilter *endpoint.DomainFilter, prefix string, dryR
 		coreDNSPrefix: prefix,
 		domainFilter:  domainFilter,
 	}, nil
+}
+
+// NewCoreDNSProviderWithBackend creates a CoreDNS provider with a specific backend.
+// This is useful for testing or when you want to manage the backend lifecycle manually.
+func NewCoreDNSProviderWithBackend(domainFilter *endpoint.DomainFilter, prefix string, dryRun bool, backend Backend) provider.Provider {
+	return coreDNSProvider{
+		client:        backend,
+		dryRun:        dryRun,
+		coreDNSPrefix: prefix,
+		domainFilter:  domainFilter,
+	}
 }
 
 // findEp takes an Endpoint slice and looks for an element in it. If found it will
